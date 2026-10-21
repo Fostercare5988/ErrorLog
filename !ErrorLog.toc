@@ -1,0 +1,12 @@
+## X-Maintainer: Fostercare5988
+## Interface: 11200
+## Title: |cffff4040!|rErrorLog
+## Notes: Catches every Lua error and finds stutters. /err for errors, /lag for stutters
+## Author: Fostercare5988
+## Version: 1.0.0
+## SavedVariables: ErrorLog_DB
+## X-Category: Development Tools
+## X-Website: https://github.com/Fostercare5988/ErrorLog
+
+ErrorLog.lua
+Profiler.lua
