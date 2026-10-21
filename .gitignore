@@ -1,0 +1,15 @@
+# Local development
+.dev/
+.tmp-*
+__pycache__/
+*.pyc
+*.zip
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*.bak
+Thumbs.db
+Desktop.ini
+.DS_Store
