@@ -3,7 +3,7 @@
 ## Title: |cffff9e38!ErrorLog|r |cffffd6a8[Fostercare5988]|r
 ## Notes: Catches every Lua error and finds stutters. /err for errors, /lag for stutters
 ## Author: Fostercare5988
-## Version: 1.0.0
+## Version: 1.1.0
 ## SavedVariables: ErrorLog_DB
 ## X-Category: Development Tools
 ## X-Website: https://github.com/Fostercare5988/ErrorLog
