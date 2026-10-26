@@ -1,8 +1,8 @@
 -- Stutter finder. While on (/lag on) every OnEvent,
 -- OnUpdate, OnShow and OnHide script an addon sets, and every C_Timer
--- callback, is timed and charged to the addon that set it. A frame that takes
--- longer than HITCH_MS is saved with the addons that ran during it, so you can
--- see whether a stutter was addon code or the game itself.
+-- callback, is timed and its new Lua memory counted, for the addon that set it.
+-- A frame that takes longer than HITCH_MS is saved with the addons that ran
+-- during it, so you can see whether a stutter was addon code or the game itself.
 --   /lag          open the report (also the Stutters button in /err)
 --   /lag on|off   start or stop profiling; reloads the UI to (un)hook
 --   /lag clear    forget what was caught so far
@@ -35,6 +35,11 @@ local depth = 0
 -- Time since the last driver tick, per addon; reused to avoid garbage.
 local used, calls, worst, worstLabel = {}, {}, {}, {}
 local totals = {} -- addon -> ms this session
+-- New Lua memory made inside each addon's handlers (KB this session). The
+-- counter only grows between collections, so the rise across a call is what
+-- it made; a fall means a collection ran inside that call (gcIn).
+local made = {}
+local gcIn
 local origOf = setmetatable({}, { __mode = "k" }) -- wrapper -> original
 local labelOf = setmetatable({}, { __mode = "k" }) -- original -> label
 
@@ -64,7 +69,7 @@ local function EventName(a, b)
 	return event
 end
 
-local function NoteSlow(addon, label, script, ms, ev)
+local function NoteSlow(addon, label, script, ms, ev, collected)
 	local key = addon .. " " .. label .. " " .. script .. " " .. (ev or "")
 	local s = db.slow[key]
 	if not s then
@@ -75,7 +80,7 @@ local function NoteSlow(addon, label, script, ms, ev)
 	end
 	s.count = s.count + 1
 	s.total = s.total + ms
-	if ms > s.worst then s.worst = ms; s.last = date("%H:%M:%S") end
+	if ms > s.worst then s.worst = ms; s.last = date("%H:%M:%S"); s.gc = collected end
 end
 
 local function Wrap(fn, script)
@@ -85,12 +90,14 @@ local function Wrap(fn, script)
 	labelOf[fn] = label
 	local wrapper = function(...)
 		depth = depth + 1
+		local kb = LuaKB()
 		local start = clock()
 		fn(...)
 		local ms = clock() - start
+		kb = LuaKB() - kb
 		depth = depth - 1
 		-- Nested handlers (an OnShow inside an OnEvent) are already inside
-		-- their parent's time.
+		-- their parent's time and memory.
 		if depth == 0 then
 			used[addon] = (used[addon] or 0) + ms
 			calls[addon] = (calls[addon] or 0) + 1
@@ -98,8 +105,9 @@ local function Wrap(fn, script)
 				worst[addon] = ms
 				worstLabel[addon] = label .. " " .. script
 			end
+			if kb >= 0 then made[addon] = (made[addon] or 0) + kb else gcIn = addon end
 		end
-		if ms >= SLOW_MS then NoteSlow(addon, label, script, ms, script == "OnEvent" and EventName(...) or nil) end
+		if ms >= SLOW_MS then NoteSlow(addon, label, script, ms, script == "OnEvent" and EventName(...) or nil, kb < 0 or nil) end
 	end
 	origOf[wrapper] = fn
 	return wrapper
@@ -195,7 +203,7 @@ local function Tick(_, elapsed)
 			h.until_ = date("%H:%M:%S")
 			if ms > h.ms then h.ms, h.lua, h.top = ms, lua, table.concat(top, "; ") end
 			h.maxLua = math.max(h.maxLua or h.lua, lua)
-			if freed > 0 then h.gc = (h.gc or 0) + freed / 1024 end
+			if freed > 0 then h.gc, h.gcIn = (h.gc or 0) + freed / 1024, gcIn or h.gcIn end
 		else
 			table.insert(db.hitches, 1, {
 				time = date("%H:%M:%S"),
@@ -207,6 +215,7 @@ local function Tick(_, elapsed)
 					or (GetNumPartyMembers and GetNumPartyMembers() > 0 and "party") or "solo",
 				top = table.concat(top, "; "),
 				gc = freed > 0 and freed / 1024 or nil,
+				gcIn = freed > 0 and gcIn or nil,
 				heap = kb / 1024,
 			})
 			while table.getn(db.hitches) > MAX_HITCHES do table.remove(db.hitches) end
@@ -215,6 +224,7 @@ local function Tick(_, elapsed)
 		if freed > 0 then gcInHitches = gcInHitches + 1 end
 	end
 	for addon in pairs(used) do used[addon], calls[addon], worst[addon] = 0, 0, 0 end
+	gcIn = nil
 	depth = 0 -- a handler that errored never got to decrement it
 end
 
@@ -247,7 +257,8 @@ local function Report()
 				h.combat and ", in combat" or "", h.ms, h.lua))
 		end
 		if h.gc then
-			add(string.format("    garbage collection: freed %.1f MB (Lua memory %.0f MB)", h.gc, h.heap or 0))
+			add(string.format("    garbage collection: freed %.1f MB (Lua memory %.0f MB)%s", h.gc, h.heap or 0,
+				h.gcIn and (", started inside " .. h.gcIn) or ""))
 		end
 		if h.top ~= "" then add("    " .. h.top) end
 	end
@@ -261,6 +272,24 @@ local function Report()
 		(lastKB or 0) / 1024, peakKB / 1024, grownKB / 1024 / math.max(running, 1)))
 	add(string.format("  garbage collections seen: %d (%.0f MB freed), %d of them during a stutter",
 		gcRuns, gcFreedKB / 1024, gcInHitches))
+	add("  A collection starts in whatever code needs memory at that moment, so its time")
+	add("  shows up there. The addons that make the most memory make collections come sooner:")
+	local garbage, sum = {}, 0
+	for addon, kb in pairs(made) do
+		sum = sum + kb
+		if kb > 0 then table.insert(garbage, { addon = addon, kb = kb }) end
+	end
+	table.sort(garbage, function(x, y) return x.kb > y.kb end)
+	if table.getn(garbage) == 0 then add("  none yet") end
+	for i = 1, math.min(10, table.getn(garbage)) do
+		local g = garbage[i]
+		add(string.format("%7.1f KB/s  %s", g.kb / math.max(running, 1), g.addon))
+	end
+	if grownKB > 0 and sum > 0 then
+		add(string.format("  These handlers made %d%% of the new memory; the rest came from XML scripts,",
+			math.min(100, math.floor(sum / grownKB * 100 + 0.5))))
+		add("  hooked functions and the game's own Lua.")
+	end
 
 	add("")
 	add("SLOWEST HANDLERS (one call over " .. SLOW_MS .. " ms)")
@@ -270,8 +299,8 @@ local function Report()
 	if table.getn(slow) == 0 then add("  none yet") end
 	for i = 1, math.min(25, table.getn(slow)) do
 		local s = slow[i]
-		add(string.format("%6.1f ms worst, x%d  %s  %s %s%s", s.worst, s.count, s.addon, s.label, s.script,
-			s.event and (" (" .. s.event .. ")") or ""))
+		add(string.format("%6.1f ms worst, x%d  %s  %s %s%s%s", s.worst, s.count, s.addon, s.label, s.script,
+			s.event and (" (" .. s.event .. ")") or "", s.gc and ", worst one held a garbage collection" or ""))
 	end
 
 	add("")
@@ -291,6 +320,7 @@ local function Clear()
 	db.hitches, db.slow, db.slowCount = {}, {}, 0
 	peakKB, grownKB, gcRuns, gcFreedKB, gcInHitches = lastKB or 0, 0, 0, 0, 0
 	table.wipe(totals)
+	table.wipe(made)
 	startedAt = GetTime()
 end
 

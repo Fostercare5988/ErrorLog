@@ -12,7 +12,9 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   errors raised while other addons load.
 - **Stutter profiler.** Times every addon's event, update and timer code. For each
   frame over 100 ms it records how much was addon code and which addon and line
-  ran, whether Lua garbage collection ran, and each addon's CPU use per second.
+  ran, whether Lua garbage collection ran and inside which addon it started, and
+  each addon's CPU use and new Lua memory per second. The addons that make the
+  most memory make the next collection, and its stutter, come sooner.
   A stutter with almost no addon time is the game itself.
 - **Kept across sessions** in SavedVariables (`ErrorLog_DB`), up to 100 different
   errors and 40 stutters.
