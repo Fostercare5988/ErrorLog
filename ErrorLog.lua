@@ -407,3 +407,25 @@ SlashCmdList["ERRORLOG"] = function(arg)
 		Open()
 	end
 end
+
+-- Game Menu > AddOn Options > !ErrorLog (ClassicAPI).
+local entry = CreateFrame("Frame", "ErrorLogOptionsEntry")
+entry.name = "!ErrorLog"
+local entryTitle = entry:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+entryTitle:SetPoint("TOPLEFT", entry, "TOPLEFT", 16, -16)
+entryTitle:SetText("!ErrorLog")
+local entryText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+entryText:SetPoint("TOPLEFT", entryTitle, "BOTTOMLEFT", 0, -8)
+entryText:SetWidth(380)
+entryText:SetJustifyH("LEFT")
+entryText:SetText("Catches every Lua error and finds stutters. Type /err for errors and /lag for the stutter report.")
+local entryOpen = CreateFrame("Button", "ErrorLogOptionsEntryOpen", entry, "UIPanelButtonTemplate")
+entryOpen:SetWidth(172); entryOpen:SetHeight(22)
+entryOpen:SetPoint("TOPLEFT", entry, "TOPLEFT", 16, -80)
+entryOpen:SetText("Show errors")
+entryOpen:SetScript("OnClick", function()
+    if InterfaceOptionsFrame and InterfaceOptionsFrame:IsShown() then InterfaceOptionsFrame:Hide() end
+    if GameMenuFrame and GameMenuFrame:IsShown() then HideUIPanel(GameMenuFrame) end
+    ErrorLog.OpenErrors()
+end)
+InterfaceOptions_AddCategory(entry)
