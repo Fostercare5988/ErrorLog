@@ -7,7 +7,7 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
 
 - **Errors without popups.** Every Lua error is saved with its stack trace, zone,
   time and how often it happened, and shown in a window you can copy from. A small
-  red counter shows unread errors. Blizzard's popup is off by default.
+  red counter shows unread errors. ClassicAPI's own error window is off by default.
 - **Errors from loading too.** The `!` makes it load first, so it also catches
   errors raised while other addons load.
 - **Stutter profiler.** Times every addon's event, update and timer code. For each
@@ -25,7 +25,7 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
 | --- | --- |
 | `/err` | Open the error window (its **Stutters** button switches to the report) |
 | `/err clear` | Forget all saved errors |
-| `/err popup` | Show Blizzard's error popup as well |
+| `/err popup` | Show ClassicAPI's error window as well |
 | `/err test` | Raise a test error |
 | `/lag` | Open the stutter report |
 | `/lag on` / `/lag off` | Start or stop the profiler (reloads the UI) |

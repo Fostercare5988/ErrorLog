@@ -1,9 +1,9 @@
 -- !ErrorLog: catches every Lua error from any addon, keeps it across
 -- sessions in SavedVariables (with stack, zone and counts) and shows it in a
--- window you can copy from, instead of the modal popup.
+-- window you can copy from, instead of ClassicAPI's error window.
 --   /err          open the window (the button in it switches to stutters)
 --   /err clear    forget every saved error
---   /err popup    toggle Blizzard's error popup as well (off by default)
+--   /err popup    toggle ClassicAPI's error window as well (off by default)
 --   /err test     raise a test error
 -- The stutter profiler's /lag commands are in Profiler.lua.
 local MAX_ERRORS = 100
@@ -12,7 +12,8 @@ local MAX_ERRORS = 100
 ErrorLog = { onLoad = {} }
 
 local pending = {} -- errors raised before SavedVariables load
-local previous = (geterrorhandler and geterrorhandler()) or _ERRORMESSAGE
+-- ClassicAPI's handler, which opens its Lua error window.
+local previous = geterrorhandler()
 local db
 local session = 0
 local Window, Button -- built on demand / at load
@@ -115,14 +116,23 @@ local function Record(msg, stack)
 	if Window and Window:IsShown() then Window:Refresh() end
 end
 
+-- The stack from the code that raised the error, not from this handler
+-- (ClassicAPI: GetErrorCallstackHeight). An error raised by calling the handler
+-- directly has no height, so its stack starts at the caller.
+local function ErrorStack()
+	local height = GetErrorCallstackHeight()
+	if not height then return debugstack(2, 14, 0) end
+	return debugstack(GetCallstackHeight() - height + 1, 14, 0)
+end
+
 seterrorhandler(function(msg)
 	msg = tostring(msg)
 	-- The stack is only worth its cost the first time a message is seen.
 	local stack
-	if not byMsg[msg] and debugstack then stack = debugstack(2, 14, 0) end
+	if not byMsg[msg] then stack = ErrorStack() end
 	-- Never let the logger itself raise: that would recurse into this handler.
 	pcall(Record, msg, stack)
-	if previous and (not db or db.popup) then return previous(msg) end
+	if not db or db.popup then return previous(msg) end
 end)
 
 -- -------------------------------------------------------------------------- --
@@ -291,7 +301,7 @@ local function BuildWindow()
 				if errors[i].lastSession == session then here = here + 1 end
 			end
 			self.Title:SetText("Error " .. self.index .. " of " .. total .. "  |cffaaaaaa" .. e.addon .. "|r")
-			self.Sub:SetText(here .. " seen this session, newest first. Popup: "
+			self.Sub:SetText(here .. " seen this session, newest first. Error window: "
 				.. (db.popup and "on" or "off") .. " (/err popup)")
 			text = Plain(Details(e))
 		end
@@ -400,7 +410,7 @@ SlashCmdList["ERRORLOG"] = function(arg)
 		Print("cleared.")
 	elseif arg == "popup" then
 		db.popup = not db.popup
-		Print("Blizzard error popup " .. (db.popup and "on" or "off") .. ".")
+		Print("Error window " .. (db.popup and "on" or "off") .. ".")
 	elseif arg == "test" then
 		error("ErrorLog test error")
 	else

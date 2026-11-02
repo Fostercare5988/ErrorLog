@@ -22,6 +22,9 @@ Things to know:
 - Memory per addon is the rise in `gcinfo()` across each handler call: two cheap
   reads, no heap walk. `UpdateAddOnMemoryUsage` recounts the whole heap and would
   cause stutters of its own, so the profiler does not use it.
+- A saved stack starts at the code that raised the error: `GetErrorCallstackHeight`
+  (ClassicAPI 1.19) names its level. The handler chains to the handler that was
+  there at load, ClassicAPI's Lua error window, only with `/err popup` on.
 - A repeated error costs one table lookup; keep the error handler cheap because
   an addon can error every frame.
 - Data: `WTF\Account\<account>\SavedVariables\!ErrorLog.lua`, written on
