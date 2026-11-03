@@ -1,8 +1,13 @@
 -- Stutter finder. While on (/lag on) every OnEvent,
--- OnUpdate, OnShow and OnHide script an addon sets, and every C_Timer
--- callback, is timed and its new Lua memory counted, for the addon that set it.
+-- OnUpdate, OnShow and OnHide script an addon sets, every C_Timer callback and
+-- every hooksecurefunc hook is timed and its new Lua memory counted, for the
+-- addon that set it. After login the scripts written in XML (the game's own
+-- frames and addon XML files) are timed too, as "Game UI and XML". Each call is
+-- charged only its own time: a hook inside a game handler goes to the hook's
+-- addon, not to the handler.
 -- A frame that takes longer than HITCH_MS is saved with the addons that ran
--- during it, so you can see whether a stutter was addon code or the game itself.
+-- during it and the events that fired in it, so you can see whether a stutter
+-- was addon code or the game itself, and what set it off.
 --   /lag          open the report (also the Stutters button in /err)
 --   /lag on|off   start or stop profiling; reloads the UI to (un)hook
 --   /lag clear    forget what was caught so far
@@ -15,6 +20,7 @@ local SLOW_MS = 5       -- one handler call this long gets listed
 local MAX_HITCHES = 40
 local MAX_SLOW = 200
 local WRAPPED = { OnEvent = true, OnUpdate = true, OnShow = true, OnHide = true }
+local UI = "Game UI and XML" -- where XML scripts and the game's own handlers are charged
 
 local db
 local active
@@ -32,6 +38,9 @@ local function LuaKB()
 	return collectgarbage("count")
 end
 local depth = 0
+-- Time and memory of the calls nested inside the call at each depth, so a
+-- parent is charged only its own part.
+local childMs, childKB = {}, {}
 -- Time since the last driver tick, per addon; reused to avoid garbage.
 local used, calls, worst, worstLabel = {}, {}, {}, {}
 local totals = {} -- addon -> ms this session
@@ -41,7 +50,6 @@ local totals = {} -- addon -> ms this session
 local made = {}
 local gcIn
 local origOf = setmetatable({}, { __mode = "k" }) -- wrapper -> original
-local labelOf = setmetatable({}, { __mode = "k" }) -- original -> label
 
 -- "Lifecycle.lua:60" and the addon folder, from the code that set the script.
 -- A shared helper (HookScript and the like) is shown with its caller.
@@ -83,35 +91,66 @@ local function NoteSlow(addon, label, script, ms, ev, collected)
 	if ms > s.worst then s.worst = ms; s.last = date("%H:%M:%S"); s.gc = collected end
 end
 
+-- One finished call at depth d: its own time and memory (its total minus the
+-- nested calls already charged) go to its addon, its total to its parent.
+local function Charge(addon, label, script, d, ms, kb, a, b)
+	local own, ownKB = ms - childMs[d], kb - childKB[d]
+	if d > 1 then
+		childMs[d - 1] = childMs[d - 1] + ms
+		childKB[d - 1] = childKB[d - 1] + kb
+	end
+	used[addon] = (used[addon] or 0) + own
+	calls[addon] = (calls[addon] or 0) + 1
+	if own > (worst[addon] or 0) then
+		worst[addon] = own
+		worstLabel[addon] = label .. " " .. script
+	end
+	-- A fall means a collection ran inside; the innermost call keeps the blame.
+	if kb >= 0 then made[addon] = (made[addon] or 0) + math.max(ownKB, 0) else gcIn = gcIn or addon end
+	if own >= SLOW_MS then NoteSlow(addon, label, script, own, script == "OnEvent" and EventName(a, b) or nil, kb < 0 or nil) end
+end
+
 local function Wrap(fn, script)
 	if type(fn) ~= "function" or origOf[fn] then return fn end
 	local addon, label = Origin()
-	if not addon then return fn end -- Blizzard's own code stays untouched
-	labelOf[fn] = label
+	if not addon then return fn end -- the game's own handlers: WrapXMLScripts
 	local wrapper = function(...)
 		depth = depth + 1
+		local d = depth
+		childMs[d], childKB[d] = 0, 0
 		local kb = LuaKB()
 		local start = clock()
 		fn(...)
 		local ms = clock() - start
 		kb = LuaKB() - kb
-		depth = depth - 1
-		-- Nested handlers (an OnShow inside an OnEvent) are already inside
-		-- their parent's time and memory.
-		if depth == 0 then
-			used[addon] = (used[addon] or 0) + ms
-			calls[addon] = (calls[addon] or 0) + 1
-			if ms > (worst[addon] or 0) then
-				worst[addon] = ms
-				worstLabel[addon] = label .. " " .. script
-			end
-			if kb >= 0 then made[addon] = (made[addon] or 0) + kb else gcIn = addon end
-		end
-		if ms >= SLOW_MS then NoteSlow(addon, label, script, ms, script == "OnEvent" and EventName(...) or nil, kb < 0 or nil) end
+		depth = d - 1
+		Charge(addon, label, script, d, ms, kb, ...)
 	end
 	origOf[wrapper] = fn
 	return wrapper
 end
+
+-- XML scripts read this, event and arg1... as globals; a fixed set of
+-- arguments passes on whatever the engine gives without a table per call.
+local function WrapXML(fn, script, label)
+	local wrapper = function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+		depth = depth + 1
+		local d = depth
+		childMs[d], childKB[d] = 0, 0
+		local kb = LuaKB()
+		local start = clock()
+		fn(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+		local ms = clock() - start
+		kb = LuaKB() - kb
+		depth = d - 1
+		Charge(UI, label, script, d, ms, kb, a1, a2)
+	end
+	origOf[wrapper] = fn
+	return wrapper
+end
+
+-- The real SetScript and GetScript of each widget type, for WrapXMLScripts.
+local rawSet, rawGet = {}, {}
 
 local function HookWidgets()
 	local done = {}
@@ -131,6 +170,7 @@ local function HookWidgets()
 		if index and not done[index] and index.SetScript then
 			done[index] = true
 			local set, get = index.SetScript, index.GetScript
+			rawSet[index], rawGet[index] = set, get
 			index.SetScript = function(self, script, fn, a, b)
 				if WRAPPED[script] then fn = Wrap(fn, script) end
 				return set(self, script, fn, a, b)
@@ -159,13 +199,50 @@ local function HookTimers()
 	end
 end
 
+-- An addon's hooksecurefunc hook runs inside the game function it follows,
+-- where no script wrapper sees it.
+local function HookHooks()
+	local real = hooksecurefunc
+	if not real then return end
+	hooksecurefunc = function(a, b, c)
+		if type(a) == "string" then return real(a, Wrap(b, "hook " .. a)) end
+		return real(a, b, Wrap(c, "hook " .. tostring(b)))
+	end
+end
+
 -- Runs once per frame: the gap since the last tick is the frame time, and
 -- everything charged since then ran during that frame.
 local driver = CreateFrame("Frame")
-local function Tick(_, elapsed)
-	elapsed = type(elapsed) == "number" and elapsed or arg1 or 0
+
+-- Every event, counted per frame, so a stutter shows what happened in it (a
+-- pack dying, nameplates leaving) even when the time went to the game itself.
+local counter = CreateFrame("Frame")
+local evCount, evSeen = {}, false
+local function CountEvent(_, ev)
+	ev = type(ev) == "string" and ev or event
+	evCount[ev] = (evCount[ev] or 0) + 1
+	evSeen = true
+end
+local function TopEvents()
+	if not evSeen then return nil end
+	local list = {}
+	for ev, n in pairs(evCount) do table.insert(list, { ev = ev, n = n }) end
+	table.sort(list, function(x, y) return x.n > y.n end)
+	local out = {}
+	for i = 1, math.min(6, #list) do out[i] = list[i].ev .. " x" .. list[i].n end
+	return table.concat(out, ", ")
+end
+
+-- The frame time is the clock between two ticks: the same window the handler
+-- times are charged in. The engine's elapsed is measured from its own point in
+-- the frame, so a slow event handler could be charged to the frame before the
+-- one that looked slow, leaving the stutter with no addon time.
+local lastClock
+local function Tick()
 	local now = GetTime()
-	local ms = elapsed * 1000
+	local tick = clock()
+	local ms = lastClock and tick - lastClock or 0
+	lastClock = tick
 	local lua = 0
 	for addon, t in pairs(used) do
 		lua = lua + t
@@ -201,7 +278,7 @@ local function Tick(_, elapsed)
 		if h and now - lastHitchAt < 1 and h.zone == zone then
 			h.frames = (h.frames or 1) + 1
 			h.until_ = date("%H:%M:%S")
-			if ms > h.ms then h.ms, h.lua, h.top = ms, lua, table.concat(top, "; ") end
+			if ms > h.ms then h.ms, h.lua, h.top, h.events = ms, lua, table.concat(top, "; "), TopEvents() end
 			h.maxLua = math.max(h.maxLua or h.lua, lua)
 			if freed > 0 then h.gc, h.gcIn = (h.gc or 0) + freed / 1024, gcIn or h.gcIn end
 		else
@@ -214,6 +291,7 @@ local function Tick(_, elapsed)
 				group = (GetNumRaidMembers and GetNumRaidMembers() > 0 and "raid")
 					or (GetNumPartyMembers and GetNumPartyMembers() > 0 and "party") or "solo",
 				top = table.concat(top, "; "),
+				events = TopEvents(),
 				gc = freed > 0 and freed / 1024 or nil,
 				gcIn = freed > 0 and gcIn or nil,
 				heap = kb / 1024,
@@ -226,6 +304,7 @@ local function Tick(_, elapsed)
 	for addon in pairs(used) do used[addon], calls[addon], worst[addon] = 0, 0, 0 end
 	gcIn = nil
 	depth = 0 -- a handler that errored never got to decrement it
+	if evSeen then table.wipe(evCount); evSeen = false end
 end
 
 local function Duration(seconds)
@@ -261,10 +340,13 @@ local function Report()
 				h.gcIn and (", started inside " .. h.gcIn) or ""))
 		end
 		if h.top ~= "" then add("    " .. h.top) end
+		if h.events then add("    events: " .. h.events) end
 	end
-	add("If addons are only a small part of a stutter, the rest went to the game itself")
-	add("(drawing, loading models, Lua garbage collection) or the server. A long run of")
-	add("slow frames with almost no addon time is usually the game alt-tabbed or the GPU.")
+	add("Addon time covers addon scripts, timers and hooks, and the game's own UI scripts")
+	add('("Game UI and XML"). The rest of a stutter went to the game engine and its DLLs')
+	add("(drawing, loading models, nameplates), Lua garbage collection or the server; the")
+	add("events line shows what happened in that frame. A long run of slow frames with")
+	add("almost no addon time is usually the game alt-tabbed or the GPU.")
 
 	add("")
 	add("LUA MEMORY since /reload")
@@ -286,9 +368,10 @@ local function Report()
 		add(string.format("%7.1f KB/s  %s", g.kb / math.max(running, 1), g.addon))
 	end
 	if grownKB > 0 and sum > 0 then
-		add(string.format("  These handlers made %d%% of the new memory; the rest came from XML scripts,",
+		add(string.format("  These handlers made %d%% of the new memory; the rest came from code outside",
 			math.min(100, math.floor(sum / grownKB * 100 + 0.5))))
-		add("  hooked functions and the game's own Lua.")
+		add("  any timed call: replaced game functions, slash commands, and scripts of frames")
+		add("  built from XML templates after login.")
 	end
 
 	add("")
@@ -312,7 +395,7 @@ local function Report()
 		local e = list[i]
 		add(string.format("%7.2f ms/s  %s", e.ms / math.max(running, 1), e.addon))
 	end
-	return "Stutter profiler", table.getn(db.hitches) .. " stutters saved. Covers scripts set from Lua, not XML.",
+	return "Stutter profiler", table.getn(db.hitches) .. " stutters saved. Covers addon scripts, timers, hooks and XML scripts.",
 		table.concat(lines, "\n")
 end
 
@@ -324,6 +407,30 @@ local function Clear()
 	startedAt = GetTime()
 end
 
+-- Scripts written in XML, and those the game's own Lua sets, never pass through
+-- an addon's SetScript call. Once everything has loaded they are wrapped in
+-- place, under the frame's name. Frames built from XML templates later stay
+-- unwrapped.
+local function WrapXMLScripts()
+	local f = EnumerateFrames()
+	while f do
+		local mt = getmetatable(f)
+		local index = mt and mt.__index
+		local get = index and rawGet[index]
+		if get and f ~= driver and f ~= counter then
+			local name
+			for script in pairs(WRAPPED) do
+				local fn = get(f, script)
+				if type(fn) == "function" and not origOf[fn] then
+					name = name or f:GetName() or "unnamed frame"
+					rawSet[index](f, script, WrapXML(fn, script, name))
+				end
+			end
+		end
+		f = EnumerateFrames(f)
+	end
+end
+
 table.insert(EL.onLoad, function(saved)
 	db = saved
 	db.hitches = db.hitches or {}
@@ -333,10 +440,17 @@ table.insert(EL.onLoad, function(saved)
 	active = true
 	HookWidgets()
 	HookTimers()
+	HookHooks()
 	startedAt = GetTime()
 	driver:SetScript("OnUpdate", Tick)
+	driver:RegisterEvent("PLAYER_LOGIN")
 	driver:RegisterEvent("PLAYER_ENTERING_WORLD")
-	driver:SetScript("OnEvent", function() quietUntil = GetTime() + 5 end)
+	driver:SetScript("OnEvent", function()
+		if event == "PLAYER_LOGIN" then WrapXMLScripts() end
+		quietUntil = GetTime() + 5
+	end)
+	counter:SetScript("OnEvent", CountEvent)
+	counter:RegisterAllEvents()
 	EL.Print("stutter profiler on: /lag to view, /lag off to stop.")
 end)
 
