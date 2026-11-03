@@ -51,13 +51,41 @@ local made = {}
 local gcIn
 local origOf = setmetatable({}, { __mode = "k" }) -- wrapper -> original
 
+-- The addon folder and file of a stack path. The game keeps only the last 52
+-- characters of a long path ("...dOns\Folder\file.lua", or the folder cut too:
+-- "...ScrollingBattleText\file.lua"); a cut folder is the one installed
+-- addon whose name ends that way.
+local folders
+local function FolderOf(path)
+	local _, _, folder, file = string.find(path, "AddOns\\([^\\]+)\\(.+)$")
+	if folder then return folder, file end
+	local _, _, head, rest = string.find(path, "^%.%.%.([^\\]*)\\(.+)$")
+	if not head or head == "" then return end
+	if string.sub("AddOns", -#head) == head then
+		return string.match(rest, "^([^\\]+)\\(.+)$")
+	end
+	if #head < 3 then return end
+	if not folders then
+		folders = {}
+		for i = 1, GetNumAddOns() do folders[i] = (GetAddOnInfo(i)) end
+	end
+	for i = 1, #folders do
+		local name = folders[i]
+		if string.sub(name, -#head) == head then
+			if folder then return end -- two addons end that way: unknown
+			folder = name
+		end
+	end
+	if folder then return folder, rest end
+end
+
 -- "Lifecycle.lua:60" and the addon folder, from the code that set the script.
 -- A shared helper (HookScript and the like) is shown with its caller.
 local function Origin()
 	local stack = debugstack(2, 6, 0) or ""
 	local addon, label
-	for path, line in (string.gmatch or string.gfind)(stack, "AddOns\\([^:\n]+):(%d+)") do
-		local _, _, folder, file = string.find(path, "^([^\\]+)\\(.+)$")
+	for path, line in string.gmatch(stack, "([^\n<>]-%.lua):(%d+)") do
+		local folder, file = FolderOf(path)
 		if folder and folder ~= "!ErrorLog" then
 			file = string.gsub(file, ".*\\", "")
 			if not addon then

@@ -26,6 +26,11 @@ Things to know:
   registers all events counts them per frame, and each slow frame keeps the
   most frequent ones (2026-11-03: Stratholme stutters showed 0 ms with the old
   `elapsed` window and no hooks or XML timed).
+- The game keeps only the last 52 characters of a stack path
+  (`...dOns\Folder\file.lua`). `FolderOf` recovers the addon, from the
+  installed folder names when the folder itself is cut. Before 1.3.1 every
+  handler set from such a path went untimed: MikScrollingBattleText's two main
+  files and four FostercareTweaks modules.
 - Never create a widget that can take keyboard focus without clearing it: the
   sample EditBox once swallowed all key presses.
 - Memory per addon is the rise in `gcinfo()` across each handler call: two cheap
