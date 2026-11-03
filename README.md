@@ -10,9 +10,10 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   red counter shows unread errors. ClassicAPI's own error window is off by default.
 - **Errors from loading too.** The `!` makes it load first, so it also catches
   errors raised while other addons load.
-- **Stutter profiler.** Times every addon's event, update and timer code. For each
+- **Stutter profiler.** Times every addon's event, update and timer code, its
+  hooks on game functions, and the game's own interface scripts. For each
   frame over 100 ms it records how much was addon code and which addon and line
-  ran, whether Lua garbage collection ran and inside which addon it started, and
+  ran, which events fired in that frame, whether Lua garbage collection ran and inside which addon it started, and
   each addon's CPU use and new Lua memory per second. The addons that make the
   most memory make the next collection, and its stutter, come sooner.
   A stutter with almost no addon time is the game itself.
