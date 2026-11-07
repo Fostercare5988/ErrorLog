@@ -184,16 +184,14 @@ local function HookWidgets()
 	local done = {}
 	for _, kind in ipairs({ "Frame", "Button", "CheckButton", "StatusBar", "Slider", "EditBox", "ScrollFrame",
 		"ScrollingMessageFrame", "MessageFrame", "Model", "PlayerModel", "ColorSelect", "GameTooltip", "Cooldown" }) do
-		local ok, sample = pcall(CreateFrame, kind)
+		local sample = CreateFrame(kind)
 		-- A new EditBox auto-focuses and would swallow every key press, so
 		-- every sample is hidden and the edit box let go of the keyboard.
-		if ok and sample then
-			if sample.SetAutoFocus then sample:SetAutoFocus(false) end
-			if sample.ClearFocus then sample:ClearFocus() end
-			if sample.EnableKeyboard then sample:EnableKeyboard(false) end
-			sample:Hide()
-		end
-		local mt = ok and sample and getmetatable(sample)
+		if sample.SetAutoFocus then sample:SetAutoFocus(false) end
+		if sample.ClearFocus then sample:ClearFocus() end
+		if sample.EnableKeyboard then sample:EnableKeyboard(false) end
+		sample:Hide()
+		local mt = getmetatable(sample)
 		local index = mt and type(mt.__index) == "table" and mt.__index
 		if index and not done[index] and index.SetScript then
 			done[index] = true

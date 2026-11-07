@@ -75,9 +75,9 @@ end
 
 -- An addon erroring every frame calls this every frame, so a repeat only bumps
 -- the entry: no stack trace, no reorder, no redraw.
-local function Record(msg, stack)
+local function Record(msg, stack, locals)
 	if not db then
-		if table.getn(pending) < 50 then table.insert(pending, { msg = msg, stack = stack }) end
+		if table.getn(pending) < 50 then table.insert(pending, { msg = msg, stack = stack, locals = locals }) end
 		return
 	end
 	local e = byMsg[msg]
@@ -96,6 +96,7 @@ local function Record(msg, stack)
 	e = {
 		msg = msg,
 		stack = stack or "",
+		locals = locals,
 		addon = addon,
 		count = 1,
 		first = Now(),
@@ -116,22 +117,25 @@ local function Record(msg, stack)
 	if Window and Window:IsShown() then Window:Refresh() end
 end
 
--- The stack from the code that raised the error, not from this handler
--- (ClassicAPI: GetErrorCallstackHeight). An error raised by calling the handler
--- directly has no height, so its stack starts at the caller.
-local function ErrorStack()
+-- The stack and the local variables of the code that raised the error, not of
+-- this handler (ClassicAPI: GetErrorCallstackHeight, debuglocals). An error
+-- raised by calling the handler directly has no height: its stack starts at the
+-- caller, and it has no locals (debuglocals answers only inside a real error).
+local function ErrorContext()
 	local height = GetErrorCallstackHeight()
 	if not height then return debugstack(2, 14, 0) end
-	return debugstack(GetCallstackHeight() - height + 1, 14, 0)
+	local level = GetCallstackHeight() - height + 1
+	-- true leaves out functions and userdata, which only name where they live.
+	return debugstack(level, 14, 0), debuglocals(level, true)
 end
 
 seterrorhandler(function(msg)
 	msg = tostring(msg)
-	-- The stack is only worth its cost the first time a message is seen.
-	local stack
-	if not byMsg[msg] then stack = ErrorStack() end
+	-- The stack and locals are only worth their cost the first time a message is seen.
+	local stack, locals
+	if not byMsg[msg] then stack, locals = ErrorContext() end
 	-- Never let the logger itself raise: that would recurse into this handler.
-	pcall(Record, msg, stack)
+	pcall(Record, msg, stack, locals)
 	if not db or db.popup then return previous(msg) end
 end)
 
@@ -147,7 +151,7 @@ local BACKDROP = {
 
 local function Details(e)
 	local lines = {
-		"|cffff6060" .. e.msg .. "|r",
+		e.msg,
 		"",
 		"Addon:    " .. e.addon,
 		"Seen:     " .. e.count .. "x, first " .. e.first .. ", last " .. e.last,
@@ -157,6 +161,9 @@ local function Details(e)
 		"",
 		"Stack:",
 		e.stack ~= "" and e.stack or "(none)",
+		"",
+		"Locals:",
+		e.locals and e.locals ~= "" and e.locals or "(none)",
 	}
 	return table.concat(lines, "\n")
 end
@@ -392,7 +399,7 @@ f:SetScript("OnEvent", function(_, _, name)
 	session = db.session
 	Reindex()
 	Button = BuildButton()
-	for i = 1, table.getn(pending) do Record(pending[i].msg, pending[i].stack) end
+	for i = 1, table.getn(pending) do Record(pending[i].msg, pending[i].stack, pending[i].locals) end
 	pending = {}
 	UpdateButton()
 	for i = 1, table.getn(ErrorLog.onLoad) do ErrorLog.onLoad[i](db) end
