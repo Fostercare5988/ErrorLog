@@ -37,7 +37,9 @@ Things to know:
   reads, no heap walk. `UpdateAddOnMemoryUsage` recounts the whole heap and would
   cause stutters of its own, so the profiler does not use it.
 - A saved stack starts at the code that raised the error: `GetErrorCallstackHeight`
-  (ClassicAPI 1.19) names its level. The handler chains to the handler that was
+  (ClassicAPI 1.19) names its level, and `debuglocals` (1.20) at that level
+  saves the locals and upvalues beside it (functions and userdata left out; at
+  most 4095 bytes; nothing for a direct call of the handler). The handler chains to the handler that was
   there at load, ClassicAPI's Lua error window, only with `/err popup` on.
 - A repeated error costs one table lookup; keep the error handler cheap because
   an addon can error every frame.

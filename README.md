@@ -5,8 +5,9 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
 
 ## Features
 
-- **Errors without popups.** Every Lua error is saved with its stack trace, zone,
-  time and how often it happened, and shown in a window you can copy from. A small
+- **Errors without popups.** Every Lua error is saved with its stack trace, the
+  values of the local variables where it happened, zone, time and how often it
+  happened, and shown in a window you can copy from. A small
   red counter shows unread errors. ClassicAPI's own error window is off by default.
 - **Errors from loading too.** The `!` makes it load first, so it also catches
   errors raised while other addons load.
