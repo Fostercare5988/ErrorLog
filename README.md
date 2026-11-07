@@ -18,6 +18,11 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   each addon's CPU use and new Lua memory per second. The addons that make the
   most memory make the next collection, and its stutter, come sooner.
   A stutter with almost no addon time is the game itself.
+- **Game checks.** The questions an addon review could not answer outside the
+  game wait here: at login it says how many are open, `/check` shows them one
+  at a time, runs the test line a check comes with and keeps what it printed,
+  and records your answer. VanillaForge's `tools/game_checks.py` brings the
+  checks in (with the game closed) and reads the answers back.
 - **Kept across sessions** in SavedVariables (`ErrorLog_DB`), up to 100 different
   errors and 40 stutters.
 
@@ -32,6 +37,10 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
 | `/lag` | Open the stutter report |
 | `/lag on` / `/lag off` | Start or stop the profiler (reloads the UI) |
 | `/lag clear` | Forget the stutter data |
+| `/check` | Show the next open game check |
+| `/check ok [note]` / `/check bad <what you saw>` | Answer it |
+| `/check run` | Run the check's test line and keep what it printed |
+| `/check skip` / `/check list` | The next one / how many are open per addon |
 
 In the window, click **Select All** and press Ctrl+C to copy.
 

@@ -1,12 +1,13 @@
 ## X-Maintainer: Fostercare5988
 ## Interface: 11200
 ## Title: |cffff9e38!ErrorLog|r |cffffd6a8[Fostercare5988]|r
-## Notes: Catches every Lua error and finds stutters. /err for errors, /lag for stutters
+## Notes: Catches every Lua error, finds stutters and asks the open game checks. /err for errors, /lag for stutters, /check for checks
 ## Author: Fostercare5988
-## Version: 1.4.0
+## Version: 1.5.0
 ## SavedVariables: ErrorLog_DB
 ## X-Category: Development Tools
 ## X-Website: https://github.com/Fostercare5988/ErrorLog
 
 ErrorLog.lua
 Profiler.lua
+Checks.lua

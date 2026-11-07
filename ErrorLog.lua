@@ -5,7 +5,8 @@
 --   /err clear    forget every saved error
 --   /err popup    toggle ClassicAPI's error window as well (off by default)
 --   /err test     raise a test error
--- The stutter profiler's /lag commands are in Profiler.lua.
+-- The stutter profiler's /lag commands are in Profiler.lua, the game checks'
+-- /check in Checks.lua.
 local MAX_ERRORS = 100
 
 -- Shared with Profiler.lua.
