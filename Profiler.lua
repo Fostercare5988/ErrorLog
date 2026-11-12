@@ -26,6 +26,8 @@ local db
 local active
 local startedAt, quietUntil = 0, 0
 local lastHitchAt = 0 -- GetTime() of the last slow frame this session
+-- What the XML pass at login did: frames walked, of a known widget type, scripts wrapped.
+local xml = { frames = 0, known = 0, scripts = 0 }
 
 -- Lua memory, read every frame. A sudden drop means the garbage collector ran
 -- in that frame: it pauses everything, usually outside any addon handler, so
@@ -57,7 +59,10 @@ local origOf = setmetatable({}, { __mode = "k" }) -- wrapper -> original
 local TICK = "frame tick"
 local gapMs, gapFrom, gapTo = 0, nil, nil
 local lastEnd, lastWhat = clock(), TICK
-local function Step(what) return string.find(what, " ") and what or ("event " .. what) end
+-- The same between events only: which event the engine was working towards.
+local evGapMs, evFrom, evTo = 0, nil, nil
+local lastEv, lastEvName = clock(), TICK
+local function Step(what) return what and (string.find(what, " ") and what or ("event " .. what)) end
 
 -- The addon folder and file of a stack path. The game keeps only the last 52
 -- characters of a long path ("...dOns\Folder\file.lua", or the folder cut too:
@@ -270,6 +275,8 @@ local function CountEvent(_, ev)
 		local t = clock()
 		if t - lastEnd > gapMs then gapMs, gapFrom, gapTo = t - lastEnd, lastWhat, ev end
 		lastEnd, lastWhat = t, ev
+		if t - lastEv > evGapMs then evGapMs, evFrom, evTo = t - lastEv, lastEvName, ev end
+		lastEv, lastEvName = t, ev
 	end
 end
 local function TopEvents()
@@ -278,7 +285,7 @@ local function TopEvents()
 	for ev, n in pairs(evCount) do table.insert(list, { ev = ev, n = n }) end
 	table.sort(list, function(x, y) return x.n > y.n end)
 	local out = {}
-	for i = 1, math.min(6, #list) do out[i] = list[i].ev .. " x" .. list[i].n end
+	for i = 1, math.min(12, #list) do out[i] = list[i].ev .. " x" .. list[i].n end
 	return table.concat(out, ", ")
 end
 
@@ -293,6 +300,7 @@ local function Tick()
 	local ms = lastClock and tick - lastClock or 0
 	lastClock = tick
 	if tick - lastEnd > gapMs then gapMs, gapFrom, gapTo = tick - lastEnd, lastWhat, TICK end
+	if tick - lastEv > evGapMs then evGapMs, evFrom, evTo = tick - lastEv, lastEvName, TICK end
 	local lua = 0
 	for addon, t in pairs(used) do
 		lua = lua + t
@@ -331,6 +339,7 @@ local function Tick()
 			if ms > h.ms then
 				h.ms, h.lua, h.top, h.events = ms, lua, table.concat(top, "; "), TopEvents()
 				h.gap, h.gapFrom, h.gapTo = gapMs, Step(gapFrom), Step(gapTo)
+				h.evGap, h.evFrom, h.evTo = evGapMs, Step(evFrom), Step(evTo)
 			end
 			h.maxLua = math.max(h.maxLua or h.lua, lua)
 			if freed > 0 then h.gc, h.gcIn = (h.gc or 0) + freed / 1024, gcIn or h.gcIn end
@@ -351,6 +360,9 @@ local function Tick()
 				gap = gapMs,
 				gapFrom = Step(gapFrom),
 				gapTo = Step(gapTo),
+				evGap = evGapMs,
+				evFrom = Step(evFrom),
+				evTo = Step(evTo),
 			})
 			while table.getn(db.hitches) > MAX_HITCHES do table.remove(db.hitches) end
 		end
@@ -362,7 +374,9 @@ local function Tick()
 	depth = 0 -- a handler that errored never got to decrement it
 	if evSeen then table.wipe(evCount); evSeen = false end
 	gapMs, gapFrom, gapTo = 0, nil, nil
+	evGapMs, evFrom, evTo = 0, nil, nil
 	lastEnd, lastWhat = clock(), TICK
+	lastEv, lastEvName = lastEnd, TICK
 end
 
 local function Duration(seconds)
@@ -399,8 +413,11 @@ local function Report()
 		end
 		if h.top ~= "" then add("    " .. h.top) end
 		if h.events then add("    events: " .. h.events) end
-		if h.gap then
+		if h.gapFrom then
 			add(string.format("    longest pause with no script running: %d ms, after %s, before %s", h.gap, h.gapFrom, h.gapTo))
+		end
+		if h.evFrom then
+			add(string.format("    longest pause between events: %d ms, after %s, before %s", h.evGap, h.evFrom, h.evTo))
 		end
 	end
 	add("Addon time covers addon scripts, timers and hooks, and the game's own UI scripts")
@@ -459,7 +476,8 @@ local function Report()
 		local e = list[i]
 		add(string.format("%7.2f ms/s  %s", e.ms / math.max(running, 1), e.addon))
 	end
-	return "Stutter profiler", table.getn(db.hitches) .. " stutters saved. Covers addon scripts, timers, hooks and XML scripts.",
+	return "Stutter profiler", table.getn(db.hitches) .. " stutters saved. Covers addon scripts, timers, hooks and "
+		.. xml.scripts .. " XML scripts" .. (xml.error and " (the XML pass failed: " .. xml.error .. ")" or "") .. ".",
 		table.concat(lines, "\n")
 end
 
@@ -481,18 +499,31 @@ local function WrapXMLScripts()
 		local mt = getmetatable(f)
 		local index = mt and mt.__index
 		local get = index and rawGet[index]
+		xml.frames = xml.frames + 1
 		if get and f ~= driver and f ~= counter then
+			xml.known = xml.known + 1
 			local name
 			for script in pairs(WRAPPED) do
 				local fn = get(f, script)
 				if type(fn) == "function" and not origOf[fn] then
 					name = name or f:GetName() or "unnamed frame"
 					rawSet[index](f, script, WrapXML(fn, script, name))
+					xml.scripts = xml.scripts + 1
 				end
 			end
 		end
 		f = EnumerateFrames(f)
 	end
+end
+
+-- Saved at logout and reload, so the numbers of the report can be read from
+-- the saved file: per addon ms and new KB per second, and what the XML pass did.
+local function Snapshot()
+	local running = math.max(GetTime() - startedAt, 1)
+	db.seconds, db.cpu, db.garbage = running, {}, {}
+	for addon, t in pairs(totals) do db.cpu[addon] = t / running end
+	for addon, kb in pairs(made) do db.garbage[addon] = kb / running end
+	db.xml = xml
 end
 
 table.insert(EL.onLoad, function(saved)
@@ -509,8 +540,13 @@ table.insert(EL.onLoad, function(saved)
 	driver:SetScript("OnUpdate", Tick)
 	driver:RegisterEvent("PLAYER_LOGIN")
 	driver:RegisterEvent("PLAYER_ENTERING_WORLD")
+	driver:RegisterEvent("PLAYER_LOGOUT")
 	driver:SetScript("OnEvent", function()
-		if event == "PLAYER_LOGIN" then WrapXMLScripts() end
+		if event == "PLAYER_LOGOUT" then Snapshot() return end
+		if event == "PLAYER_LOGIN" then
+			local ok, err = pcall(WrapXMLScripts)
+			xml.error = not ok and tostring(err) or nil
+		end
 		quietUntil = GetTime() + 5
 	end)
 	counter:SetScript("OnEvent", CountEvent)
