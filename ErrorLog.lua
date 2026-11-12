@@ -49,6 +49,15 @@ local function UpdateButton()
 	local n = Unseen()
 	if n > 0 then
 		Button.Text:SetText(n)
+		Button:SetBackdropColor(0.55, 0.05, 0.05, 0.9)
+		Button:SetBackdropBorderColor(1, 0.3, 0.3, 1)
+		Button:Show()
+	elseif db and db.profile then
+		-- No errors, but the profiler is on: it slows the game a little and
+		-- can interfere with other addons, so it never goes unnoticed.
+		Button.Text:SetText("P")
+		Button:SetBackdropColor(0.55, 0.32, 0.02, 0.9)
+		Button:SetBackdropBorderColor(1, 0.65, 0.15, 1)
 		Button:Show()
 	else
 		Button:Hide()
@@ -299,7 +308,8 @@ local function BuildWindow()
 		local text
 		if total == 0 then
 			self.Title:SetText("No errors")
-			self.Sub:SetText("Nothing has gone wrong since the log was last cleared.")
+			self.Sub:SetText("Nothing has gone wrong since the log was last cleared."
+				.. (db.profile and "\n|cffffa526The stutter profiler is ON and can interfere with other addons. If one stops working, type /lag off.|r" or ""))
 			text = ""
 		else
 			local e = errors[self.index]
@@ -366,6 +376,9 @@ local function BuildButton()
 		GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT")
 		GameTooltip:AddLine("Lua errors")
 		GameTooltip:AddLine(Unseen() .. " unread. Click to view, drag to move.", 1, 1, 1)
+		if db.profile then
+			GameTooltip:AddLine("The stutter profiler is ON. It can interfere with other addons: if one stops working, type /lag off.", 1, 0.65, 0.15, 1)
+		end
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)

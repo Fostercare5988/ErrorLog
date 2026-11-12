@@ -570,7 +570,7 @@ table.insert(EL.onLoad, function(saved)
 	end)
 	counter:SetScript("OnEvent", CountEvent)
 	counter:RegisterAllEvents()
-	EL.Print("stutter profiler on: /lag to view, /lag off to stop.")
+	EL.Print("|cffffa526stutter profiler is ON|r: /lag to view. It can interfere with other addons; if one stops working, type /lag off.")
 end)
 
 function EL.OpenStutters() EL.ShowReport(Report, Clear) end
