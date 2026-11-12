@@ -27,7 +27,7 @@ local active
 local startedAt, quietUntil = 0, 0
 local lastHitchAt = 0 -- GetTime() of the last slow frame this session
 -- What the XML pass at login did: frames walked, of a known widget type, scripts wrapped.
-local xml = { frames = 0, known = 0, scripts = 0 }
+local xml = { frames = 0, known = 0, scripts = 0, set = 0, failed = 0 }
 
 -- Lua memory, read every frame. A sudden drop means the garbage collector ran
 -- in that frame: it pauses everything, usually outside any addon handler, so
@@ -201,6 +201,48 @@ end
 -- The real SetScript and GetScript of each widget type, for WrapXMLScripts.
 local rawSet, rawGet = {}, {}
 
+-- Seen in game on 2026-11-12: every frame shares one metatable and its __index
+-- is a function, not a table of methods, so there is no SetScript field to
+-- replace (until then nothing but timers and hooks was timed). The lookup
+-- itself is wrapped instead and answers SetScript and GetScript with ours.
+local rawIndex = {} -- metatable -> the game's own __index function
+local function SetScriptTimed(self, script, fn, a, b)
+	if WRAPPED[script] then fn = Wrap(fn, script); xml.set = xml.set + 1 end
+	return rawIndex[getmetatable(self)](self, "SetScript")(self, script, fn, a, b)
+end
+local function GetScriptOriginal(self, script)
+	local fn = rawIndex[getmetatable(self)](self, "GetScript")(self, script)
+	return fn and origOf[fn] or fn
+end
+local function HookFunctionIndex(mt, sample)
+	local real = mt.__index
+	rawIndex[mt] = real
+	mt.__index = function(self, key)
+		if key == "SetScript" then return SetScriptTimed end
+		if key == "GetScript" then return GetScriptOriginal end
+		return real(self, key)
+	end
+	-- A frame that no longer answers as before gets the game's lookup back.
+	if sample.SetScript ~= SetScriptTimed or sample.Hide ~= real(sample, "Hide") then
+		mt.__index = real
+		rawIndex[mt] = nil
+		xml.index = "function, not hooked"
+	else
+		xml.index = "function"
+	end
+end
+
+-- The game's own SetScript or GetScript of a frame, whichever way it is hooked.
+local function Raw(f, method)
+	local mt = getmetatable(f)
+	if not mt then return end
+	local real = rawIndex[mt]
+	if real then return real(f, method) end
+	local index = mt.__index
+	if method == "SetScript" then return rawSet[index] end
+	return rawGet[index]
+end
+
 local function HookWidgets()
 	local done = {}
 	for _, kind in ipairs({ "Frame", "Button", "CheckButton", "StatusBar", "Slider", "EditBox", "ScrollFrame",
@@ -214,12 +256,15 @@ local function HookWidgets()
 		sample:Hide()
 		local mt = getmetatable(sample)
 		local index = mt and type(mt.__index) == "table" and mt.__index
-		if index and not done[index] and index.SetScript then
+		if mt and type(mt.__index) == "function" and not rawIndex[mt] then
+			HookFunctionIndex(mt, sample)
+		elseif index and not done[index] and index.SetScript then
 			done[index] = true
+			xml.index = "table"
 			local set, get = index.SetScript, index.GetScript
 			rawSet[index], rawGet[index] = set, get
 			index.SetScript = function(self, script, fn, a, b)
-				if WRAPPED[script] then fn = Wrap(fn, script) end
+				if WRAPPED[script] then fn = Wrap(fn, script); xml.set = xml.set + 1 end
 				return set(self, script, fn, a, b)
 			end
 			-- Hand back the original so HookScript-style chaining and
@@ -493,25 +538,27 @@ end
 -- an addon's SetScript call. Once everything has loaded they are wrapped in
 -- place, under the frame's name. Frames built from XML templates later stay
 -- unwrapped.
+local function WrapFrame(f)
+	local get = Raw(f, "GetScript")
+	if not get or f == driver or f == counter then return end
+	xml.known = xml.known + 1
+	local name
+	for script in pairs(WRAPPED) do
+		local fn = get(f, script)
+		if type(fn) == "function" and not origOf[fn] then
+			name = name or f:GetName() or "unnamed frame"
+			Raw(f, "SetScript")(f, script, WrapXML(fn, script, name))
+			xml.scripts = xml.scripts + 1
+		end
+	end
+end
 local function WrapXMLScripts()
 	local f = EnumerateFrames()
 	while f do
-		local mt = getmetatable(f)
-		local index = mt and mt.__index
-		local get = index and rawGet[index]
 		xml.frames = xml.frames + 1
-		if get and f ~= driver and f ~= counter then
-			xml.known = xml.known + 1
-			local name
-			for script in pairs(WRAPPED) do
-				local fn = get(f, script)
-				if type(fn) == "function" and not origOf[fn] then
-					name = name or f:GetName() or "unnamed frame"
-					rawSet[index](f, script, WrapXML(fn, script, name))
-					xml.scripts = xml.scripts + 1
-				end
-			end
-		end
+		-- One odd frame must not end the pass for the thousands after it.
+		local ok, err = pcall(WrapFrame, f)
+		if not ok then xml.failed = xml.failed + 1; xml.error = xml.error or tostring(err) end
 		f = EnumerateFrames(f)
 	end
 end
@@ -533,7 +580,8 @@ table.insert(EL.onLoad, function(saved)
 	db.slowCount = db.slowCount or 0
 	if not db.profile then return end
 	active = true
-	HookWidgets()
+	local ok, err = pcall(HookWidgets)
+	if not ok then xml.error = tostring(err) end
 	HookTimers()
 	HookHooks()
 	startedAt = GetTime()
@@ -545,7 +593,7 @@ table.insert(EL.onLoad, function(saved)
 		if event == "PLAYER_LOGOUT" then Snapshot() return end
 		if event == "PLAYER_LOGIN" then
 			local ok, err = pcall(WrapXMLScripts)
-			xml.error = not ok and tostring(err) or nil
+			if not ok then xml.error = tostring(err) end
 		end
 		quietUntil = GetTime() + 5
 	end)

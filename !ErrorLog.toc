@@ -3,7 +3,7 @@
 ## Title: |cffff9e38!ErrorLog|r |cffffd6a8[Fostercare5988]|r
 ## Notes: Catches every Lua error, finds stutters and freezes, and asks the open game checks. /err for errors, /lag for stutters, /trace for freezes, /check for checks
 ## Author: Fostercare5988
-## Version: 1.7.1
+## Version: 1.8.0
 ## SavedVariables: ErrorLog_DB
 ## X-Category: Development Tools
 ## X-Website: https://github.com/Fostercare5988/ErrorLog
