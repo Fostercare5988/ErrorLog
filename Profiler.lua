@@ -201,43 +201,16 @@ end
 -- The real SetScript and GetScript of each widget type, for WrapXMLScripts.
 local rawSet, rawGet = {}, {}
 
--- Seen in game on 2026-11-12: every frame shares one metatable and its __index
--- is a function, not a table of methods, so there is no SetScript field to
--- replace (until then nothing but timers and hooks was timed). The lookup
--- itself is wrapped instead and answers SetScript and GetScript with ours.
-local rawIndex = {} -- metatable -> the game's own __index function
-local function SetScriptTimed(self, script, fn, a, b)
-	if WRAPPED[script] then fn = Wrap(fn, script); xml.set = xml.set + 1 end
-	return rawIndex[getmetatable(self)](self, "SetScript")(self, script, fn, a, b)
-end
-local function GetScriptOriginal(self, script)
-	local fn = rawIndex[getmetatable(self)](self, "GetScript")(self, script)
-	return fn and origOf[fn] or fn
-end
-local function HookFunctionIndex(mt, sample)
-	local real = mt.__index
-	rawIndex[mt] = real
-	mt.__index = function(self, key)
-		if key == "SetScript" then return SetScriptTimed end
-		if key == "GetScript" then return GetScriptOriginal end
-		return real(self, key)
-	end
-	-- A frame that no longer answers as before gets the game's lookup back.
-	if sample.SetScript ~= SetScriptTimed or sample.Hide ~= real(sample, "Hide") then
-		mt.__index = real
-		rawIndex[mt] = nil
-		xml.index = "function, not hooked"
-	else
-		xml.index = "function"
-	end
-end
+-- Seen in game on 2026-11-12: every frame shares one metatable whose __index is
+-- a function, so there is no SetScript field to replace. It is left alone:
+-- wrapping that lookup broke other addons (FostercareTweaks, Mailroom and
+-- AutoLazy stopped working while the profiler was on), and XML scripts stay
+-- untimed on this client.
 
 -- The game's own SetScript or GetScript of a frame, whichever way it is hooked.
 local function Raw(f, method)
 	local mt = getmetatable(f)
 	if not mt then return end
-	local real = rawIndex[mt]
-	if real then return real(f, method) end
 	local index = mt.__index
 	if method == "SetScript" then return rawSet[index] end
 	return rawGet[index]
@@ -256,9 +229,7 @@ local function HookWidgets()
 		sample:Hide()
 		local mt = getmetatable(sample)
 		local index = mt and type(mt.__index) == "table" and mt.__index
-		if mt and type(mt.__index) == "function" and not rawIndex[mt] then
-			HookFunctionIndex(mt, sample)
-		elseif index and not done[index] and index.SetScript then
+		if index and not done[index] and index.SetScript then
 			done[index] = true
 			xml.index = "table"
 			local set, get = index.SetScript, index.GetScript
