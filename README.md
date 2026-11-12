@@ -17,7 +17,9 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   ran, which events fired in that frame, whether Lua garbage collection ran and inside which addon it started, and
   each addon's CPU use and new Lua memory per second. The addons that make the
   most memory make the next collection, and its stutter, come sooner.
-  A stutter with almost no addon time is the game itself.
+  A stutter with almost no addon time is the game itself; its longest pause
+  with no script running, and what ran just before and after it, shows which
+  part of the frame the game spent it in.
 - **Freeze recorder.** A freeze loses everything an addon holds in memory, so
   `/trace Bagnon` writes each step of that addon to a file the moment it
   happens: its own functions, the game calls made inside them and the event

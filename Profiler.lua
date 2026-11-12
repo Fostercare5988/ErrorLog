@@ -51,6 +51,14 @@ local made = {}
 local gcIn
 local origOf = setmetatable({}, { __mode = "k" }) -- wrapper -> original
 
+-- The longest stretch of the frame in which no timed script ran: the engine or
+-- a DLL at work. What ran just before and after it (a script, an event by its
+-- name, or the profiler's own tick) places it inside the frame.
+local TICK = "frame tick"
+local gapMs, gapFrom, gapTo = 0, nil, nil
+local lastEnd, lastWhat = clock(), TICK
+local function Step(what) return string.find(what, " ") and what or ("event " .. what) end
+
 -- The addon folder and file of a stack path. The game keeps only the last 52
 -- characters of a long path ("...dOns\Folder\file.lua", or the folder cut too:
 -- "...ScrollingBattleText\file.lua"); a cut folder is the one installed
@@ -142,14 +150,18 @@ local function Wrap(fn, script)
 	if type(fn) ~= "function" or origOf[fn] then return fn end
 	local addon, label = Origin()
 	if not addon then return fn end -- the game's own handlers: WrapXMLScripts
+	local what = addon .. " " .. label .. " " .. script
 	local wrapper = function(...)
 		depth = depth + 1
 		local d = depth
 		childMs[d], childKB[d] = 0, 0
 		local kb = LuaKB()
 		local start = clock()
+		if d == 1 and start - lastEnd > gapMs then gapMs, gapFrom, gapTo = start - lastEnd, lastWhat, what end
 		fn(...)
-		local ms = clock() - start
+		local stop = clock()
+		local ms = stop - start
+		if d == 1 then lastEnd, lastWhat = stop, what end
 		kb = LuaKB() - kb
 		depth = d - 1
 		Charge(addon, label, script, d, ms, kb, ...)
@@ -161,14 +173,18 @@ end
 -- XML scripts read this, event and arg1... as globals; a fixed set of
 -- arguments passes on whatever the engine gives without a table per call.
 local function WrapXML(fn, script, label)
+	local what = label .. " " .. script
 	local wrapper = function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
 		depth = depth + 1
 		local d = depth
 		childMs[d], childKB[d] = 0, 0
 		local kb = LuaKB()
 		local start = clock()
+		if d == 1 and start - lastEnd > gapMs then gapMs, gapFrom, gapTo = start - lastEnd, lastWhat, what end
 		fn(a1, a2, a3, a4, a5, a6, a7, a8, a9)
-		local ms = clock() - start
+		local stop = clock()
+		local ms = stop - start
+		if d == 1 then lastEnd, lastWhat = stop, what end
 		kb = LuaKB() - kb
 		depth = d - 1
 		Charge(UI, label, script, d, ms, kb, a1, a2)
@@ -248,6 +264,13 @@ local function CountEvent(_, ev)
 	ev = type(ev) == "string" and ev or event
 	evCount[ev] = (evCount[ev] or 0) + 1
 	evSeen = true
+	-- An event the engine sends by itself (not from inside a script) is a step
+	-- of the frame too.
+	if depth == 0 then
+		local t = clock()
+		if t - lastEnd > gapMs then gapMs, gapFrom, gapTo = t - lastEnd, lastWhat, ev end
+		lastEnd, lastWhat = t, ev
+	end
 end
 local function TopEvents()
 	if not evSeen then return nil end
@@ -269,6 +292,7 @@ local function Tick()
 	local tick = clock()
 	local ms = lastClock and tick - lastClock or 0
 	lastClock = tick
+	if tick - lastEnd > gapMs then gapMs, gapFrom, gapTo = tick - lastEnd, lastWhat, TICK end
 	local lua = 0
 	for addon, t in pairs(used) do
 		lua = lua + t
@@ -304,7 +328,10 @@ local function Tick()
 		if h and now - lastHitchAt < 1 and h.zone == zone then
 			h.frames = (h.frames or 1) + 1
 			h.until_ = date("%H:%M:%S")
-			if ms > h.ms then h.ms, h.lua, h.top, h.events = ms, lua, table.concat(top, "; "), TopEvents() end
+			if ms > h.ms then
+				h.ms, h.lua, h.top, h.events = ms, lua, table.concat(top, "; "), TopEvents()
+				h.gap, h.gapFrom, h.gapTo = gapMs, Step(gapFrom), Step(gapTo)
+			end
 			h.maxLua = math.max(h.maxLua or h.lua, lua)
 			if freed > 0 then h.gc, h.gcIn = (h.gc or 0) + freed / 1024, gcIn or h.gcIn end
 		else
@@ -321,6 +348,9 @@ local function Tick()
 				gc = freed > 0 and freed / 1024 or nil,
 				gcIn = freed > 0 and gcIn or nil,
 				heap = kb / 1024,
+				gap = gapMs,
+				gapFrom = Step(gapFrom),
+				gapTo = Step(gapTo),
 			})
 			while table.getn(db.hitches) > MAX_HITCHES do table.remove(db.hitches) end
 		end
@@ -331,6 +361,8 @@ local function Tick()
 	gcIn = nil
 	depth = 0 -- a handler that errored never got to decrement it
 	if evSeen then table.wipe(evCount); evSeen = false end
+	gapMs, gapFrom, gapTo = 0, nil, nil
+	lastEnd, lastWhat = clock(), TICK
 end
 
 local function Duration(seconds)
@@ -367,12 +399,18 @@ local function Report()
 		end
 		if h.top ~= "" then add("    " .. h.top) end
 		if h.events then add("    events: " .. h.events) end
+		if h.gap then
+			add(string.format("    longest pause with no script running: %d ms, after %s, before %s", h.gap, h.gapFrom, h.gapTo))
+		end
 	end
 	add("Addon time covers addon scripts, timers and hooks, and the game's own UI scripts")
 	add('("Game UI and XML"). The rest of a stutter went to the game engine and its DLLs')
 	add("(drawing, loading models, nameplates), Lua garbage collection or the server; the")
 	add("events line shows what happened in that frame. A long run of slow frames with")
 	add("almost no addon time is usually the game alt-tabbed or the GPU.")
+	add("The longest pause is where the engine spent its time: between two events it was")
+	add("handling what the server sent; next to the frame tick it was updating or drawing")
+	add("the world.")
 
 	add("")
 	add("LUA MEMORY since /reload")
