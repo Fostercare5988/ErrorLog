@@ -18,6 +18,13 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   each addon's CPU use and new Lua memory per second. The addons that make the
   most memory make the next collection, and its stutter, come sooner.
   A stutter with almost no addon time is the game itself.
+- **Freeze recorder.** A freeze loses everything an addon holds in memory, so
+  `/trace Bagnon` writes each step of that addon to a file the moment it
+  happens: its own functions, the game calls made inside them and the event
+  that led there. After the freeze, the last line of
+  `CustomData\ErrorLogTraceA.txt` or `ErrorLogTraceB.txt` (the newer of the two)
+  is where the game stopped. It stays on across `/reload` and login until
+  `/trace off`. Needs NamPower.
 - **Game checks.** The questions an addon review could not answer outside the
   game wait here: at login it says how many are open, `/check` shows them one
   at a time, runs the test line a check comes with and keeps what it printed,
@@ -37,6 +44,8 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
 | `/lag` | Open the stutter report |
 | `/lag on` / `/lag off` | Start or stop the profiler (reloads the UI) |
 | `/lag clear` | Forget the stutter data |
+| `/trace <addon> [more names]` | Record every function whose name starts with a name, to find a freeze |
+| `/trace off` / `/trace` | Stop recording / is it recording? |
 | `/check` | Show the next open game check |
 | `/check ok [note]` / `/check bad <what you saw>` | Answer it |
 | `/check run` | Run the check's test line and keep what it printed |
@@ -48,7 +57,8 @@ In the window, click **Select All** and press Ctrl+C to copy.
 
 WoW 1.12.1 with **ClassicAPI** loaded (the profiler uses its Lua backports and
 precise timer). The profiler adds a small cost while it is on; leave it off when
-you are not measuring.
+you are not measuring. The same goes for `/trace`, which also needs **NamPower**
+to write its file.
 
 ## Installation
 
