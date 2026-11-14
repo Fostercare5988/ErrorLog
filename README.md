@@ -56,6 +56,5 @@ to write its file.
 
 ## Installation
 
-Download the code with **Code → Download ZIP**, extract it and rename the folder
-to `!ErrorLog` inside `Interface/AddOns`, keeping the `!`. The folder must contain
-`Interface/AddOns/!ErrorLog/!ErrorLog.toc`.
+Download `ErrorLog.zip` from the [latest release](https://github.com/Fostercare5988/ErrorLog/releases/latest) and extract it into
+`Interface/AddOns`. The folder must be `Interface/AddOns/!ErrorLog`, with the `!`.
