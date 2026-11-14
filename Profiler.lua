@@ -50,6 +50,9 @@ local totals = {} -- addon -> ms this session
 -- counter only grows between collections, so the rise across a call is what
 -- it made; a fall means a collection ran inside that call (gcIn).
 local made = {}
+-- The same per handler ("Addon file.lua:12 < file.lua:3 OnEvent"), so the
+-- report names the line that makes it.
+local madeBy = {}
 local gcIn
 local origOf = setmetatable({}, { __mode = "k" }) -- wrapper -> original
 
@@ -134,7 +137,7 @@ end
 
 -- One finished call at depth d: its own time and memory (its total minus the
 -- nested calls already charged) go to its addon, its total to its parent.
-local function Charge(addon, label, script, d, ms, kb, a, b)
+local function Charge(addon, label, script, what, d, ms, kb, a, b)
 	local own, ownKB = ms - childMs[d], kb - childKB[d]
 	if d > 1 then
 		childMs[d - 1] = childMs[d - 1] + ms
@@ -147,7 +150,12 @@ local function Charge(addon, label, script, d, ms, kb, a, b)
 		worstLabel[addon] = label .. " " .. script
 	end
 	-- A fall means a collection ran inside; the innermost call keeps the blame.
-	if kb >= 0 then made[addon] = (made[addon] or 0) + math.max(ownKB, 0) else gcIn = gcIn or addon end
+	if kb < 0 then
+		gcIn = gcIn or addon
+	elseif ownKB > 0 then
+		made[addon] = (made[addon] or 0) + ownKB
+		madeBy[what] = (madeBy[what] or 0) + ownKB
+	end
 	if own >= SLOW_MS then NoteSlow(addon, label, script, own, script == "OnEvent" and EventName(a, b) or nil, kb < 0 or nil) end
 end
 
@@ -169,7 +177,7 @@ local function Wrap(fn, script)
 		if d == 1 then lastEnd, lastWhat = stop, what end
 		kb = LuaKB() - kb
 		depth = d - 1
-		Charge(addon, label, script, d, ms, kb, ...)
+		Charge(addon, label, script, what, d, ms, kb, ...)
 	end
 	origOf[wrapper] = fn
 	return wrapper
@@ -192,7 +200,7 @@ local function WrapXML(fn, script, label)
 		if d == 1 then lastEnd, lastWhat = stop, what end
 		kb = LuaKB() - kb
 		depth = d - 1
-		Charge(UI, label, script, d, ms, kb, a1, a2)
+		Charge(UI, label, script, what, d, ms, kb, a1, a2)
 	end
 	origOf[wrapper] = fn
 	return wrapper
@@ -470,6 +478,14 @@ local function Report()
 		add("  any timed call: replaced game functions, slash commands, and scripts of frames")
 		add("  built from XML templates after login.")
 	end
+	local handlers = {}
+	for what, kb in pairs(madeBy) do table.insert(handlers, { what = what, kb = kb }) end
+	table.sort(handlers, function(x, y) return x.kb > y.kb end)
+	if #handlers > 0 then add("  The handlers that make the most:") end
+	for i = 1, math.min(15, #handlers) do
+		local h = handlers[i]
+		add(string.format("%7.2f KB/s  %s", h.kb / math.max(running, 1), h.what))
+	end
 
 	add("")
 	add("SLOWEST HANDLERS (one call over " .. SLOW_MS .. " ms)")
@@ -502,6 +518,7 @@ local function Clear()
 	peakKB, grownKB, gcRuns, gcFreedKB, gcInHitches = lastKB or 0, 0, 0, 0, 0
 	table.wipe(totals)
 	table.wipe(made)
+	table.wipe(madeBy)
 	startedAt = GetTime()
 end
 
@@ -541,6 +558,11 @@ local function Snapshot()
 	db.seconds, db.cpu, db.garbage = running, {}, {}
 	for addon, t in pairs(totals) do db.cpu[addon] = t / running end
 	for addon, kb in pairs(made) do db.garbage[addon] = kb / running end
+	local handlers = {}
+	for what, kb in pairs(madeBy) do table.insert(handlers, { what = what, kb = kb }) end
+	table.sort(handlers, function(x, y) return x.kb > y.kb end)
+	db.garbageBy = {}
+	for i = 1, math.min(15, #handlers) do db.garbageBy[handlers[i].what] = handlers[i].kb / running end
 	db.xml = xml
 end
 

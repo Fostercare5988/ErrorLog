@@ -15,8 +15,9 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   hooks on game functions, and the game's own interface scripts. For each
   frame over 100 ms it records how much was addon code and which addon and line
   ran, which events fired in that frame, whether Lua garbage collection ran and inside which addon it started, and
-  each addon's CPU use and new Lua memory per second. The addons that make the
-  most memory make the next collection, and its stutter, come sooner.
+  each addon's CPU use and new Lua memory per second, and which of its
+  handlers made that memory. The addons that make the most memory make the next
+  collection, and its stutter, come sooner.
   A stutter with almost no addon time is the game itself; its longest pause
   with no script running, and what ran just before and after it, shows which
   part of the frame the game spent it in.
@@ -27,11 +28,6 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
   `CustomData\ErrorLogTraceA.txt` or `ErrorLogTraceB.txt` (the newer of the two)
   is where the game stopped. It stays on across `/reload` and login until
   `/trace off`. Needs NamPower.
-- **Game checks.** The questions an addon review could not answer outside the
-  game wait here: at login it says how many are open, `/check` shows them one
-  at a time, runs the test line a check comes with and keeps what it printed,
-  and records your answer. VanillaForge's `tools/game_checks.py` brings the
-  checks in (with the game closed) and reads the answers back.
 - **Kept across sessions** in SavedVariables (`ErrorLog_DB`), up to 100 different
   errors and 40 stutters.
 
@@ -48,10 +44,6 @@ stutter, for World of Warcraft 1.12.1 (build 5875, Interface 11200).
 | `/lag clear` | Forget the stutter data |
 | `/trace <addon> [more names]` | Record every function whose name starts with a name, to find a freeze |
 | `/trace off` / `/trace` | Stop recording / is it recording? |
-| `/check` | Show the next open game check |
-| `/check ok [note]` / `/check bad <what you saw>` | Answer it |
-| `/check run` | Run the check's test line and keep what it printed |
-| `/check skip` / `/check list` | The next one / how many are open per addon |
 
 In the window, click **Select All** and press Ctrl+C to copy.
 

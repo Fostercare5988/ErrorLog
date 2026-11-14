@@ -5,8 +5,8 @@
 --   /err clear    forget every saved error
 --   /err popup    toggle ClassicAPI's error window as well (off by default)
 --   /err test     raise a test error
--- The stutter profiler's /lag commands are in Profiler.lua, the game checks'
--- /check in Checks.lua, the freeze recorder's /trace in Trace.lua.
+-- The stutter profiler's /lag commands are in Profiler.lua, the freeze
+-- recorder's /trace in Trace.lua.
 local MAX_ERRORS = 100
 
 -- Shared with Profiler.lua.
@@ -408,6 +408,7 @@ f:SetScript("OnEvent", function(_, _, name)
 		ErrorLog_DB = { errors = {}, session = 0, popup = false }
 	end
 	db = ErrorLog_DB
+	db.checks = nil -- the game checks, retired in 1.9.0
 	ErrorLog.db = db
 	db.session = (db.session or 0) + 1
 	session = db.session
