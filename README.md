@@ -49,7 +49,7 @@ In the window, click **Select All** and press Ctrl+C to copy.
 
 ## Requirements
 
-WoW 1.12.1 with **ClassicAPI** loaded (the profiler uses its Lua backports and
+WoW 1.12.1 with **[ClassicAPI](https://github.com/brues-code/ClassicAPI)** loaded (the profiler uses its Lua backports and
 precise timer). The profiler adds a small cost while it is on; leave it off when
 you are not measuring. The same goes for `/trace`, which also needs **NamPower**
 to write its file.
